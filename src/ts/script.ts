@@ -805,13 +805,20 @@ function renderMBTI(): string {
     <section id="mbti-result" aria-live="polite"></section>${renderFooter()}`;
 }
 
+// About 문구의 **굵게** 표시만 <strong>으로 바꾸고 나머지는 그대로 이스케이프
+function renderEmphasis(text: string): string {
+  return escapeHTML(text).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+}
+
 function renderAbout(): string {
-  const cards = ([1, 2, 3] as const).map((n) => `<article class="guide-card"><span class="guide-number">${escapeHTML(t(`about${n}Label`))}</span><h2>${escapeHTML(t(`about${n}Title`))}</h2><p>${escapeHTML(t(`about${n}Text`))}</p></article>`).join("\n      ");
-  return `${renderHeader("ABOUT LOCUS", t("aboutTitle"), t("aboutLead"))}
-    <div class="place-hero"><div class="place-hero-content"><span class="eyebrow">OUR INTENTION</span><h1>${t("aboutHeroTitle")}</h1><p>${escapeHTML(t("aboutHeroText"))}</p></div></div>
-    <section class="guide-grid">
-      ${cards}
-    </section><div class="feature-band"><div><span class="section-kicker">START EXPLORING</span><h2>${escapeHTML(t("aboutBandTitle"))}</h2><p>${escapeHTML(t("aboutBandText"))}</p></div><a class="button" href="index.html#local-map">${escapeHTML(t("aboutBandButton"))}</a></div>${renderFooter()}`;
+  const intro = ([1, 2, 3, 4, 5] as const).map((n) => `<p>${renderEmphasis(t(`aboutIntro${n}`))}</p>`).join("");
+  const cards = ([1, 2] as const).map((n) => `<article class="guide-card"><span class="guide-number">${escapeHTML(t(`about${n}Label`))}</span><h3>${escapeHTML(t(`about${n}Title`))}</h3><p>${escapeHTML(t(`about${n}Text`))}</p></article>`).join("");
+  const services = ([1, 2, 3] as const).map((n) => `<li><strong>${escapeHTML(t(`aboutService${n}Title`))}</strong><p>${escapeHTML(t(`aboutService${n}Text`))}</p></li>`).join("");
+  return `${renderHeader("ABOUT LOCUS", t("aboutTitle"))}
+    <section class="about-intro">${intro}</section>
+    <section class="about-direction"><h2>${escapeHTML(t("aboutDirectionTitle"))}</h2>
+      <div class="guide-grid">${cards}<article class="guide-card about-services"><span class="guide-number">${escapeHTML(t("about3Label"))}</span><ul>${services}</ul></article></div>
+    </section>${renderFooter()}`;
 }
 
 function renderRegionalCollection(items: Place[], page: string, title: string, kicker: string): string {
