@@ -489,8 +489,7 @@ function renderHome(index: TravelIndex): string {
     "theme-tile",
   )).join("");
   const editorTiles = REGION_LINKS.map(([label, region]) => renderPhotoTile(
-    editorPosts(index, region).find((post) => imageCandidates(post).length)
-      ?? firstWithImage(places.filter((place) => placeMatchesGroup(place, region))),
+    editorCover(index, region),
     t("editorTile", { initial: CURATION_EDITORS[region] }),
     `curation.html?pick=editor&region=${region}`,
     "editor-tile",
@@ -726,6 +725,18 @@ function editorPosts(index: TravelIndex, region: RegionKey): EditorPick[] {
   return index.editorPicks.filter((post) => post.editor === CURATION_EDITORS[region]);
 }
 
+// 메인 화면 에디터's Pick 타일과 에디터's Pick 페이지 상단 배경에 같은 사진을 씀
+function editorCover(index: TravelIndex, region: RegionKey): ImageSource | null {
+  return editorPosts(index, region).find((post) => imageCandidates(post).length)
+    ?? firstWithImage(index.travel.filter((place) => placeMatchesGroup(place, region)));
+}
+
+function renderEditorHero(index: TravelIndex, region: RegionKey, title: string, lead: string): string {
+  const cover = editorCover(index, region);
+  const picture = cover ? renderImage(cover) : "";
+  return `<section class="place-hero editor-hero${picture ? " has-image" : ""}">${picture}<div class="place-hero-content"><span class="eyebrow">EDITOR'S PICK</span><h1>${escapeHTML(title)}</h1><p>${escapeHTML(lead)}</p></div></section>`;
+}
+
 function renderEditorPick(index: TravelIndex): string {
   const params = new URLSearchParams(location.search);
   const requestedRegion = params.get("region");
@@ -741,7 +752,7 @@ function renderEditorPick(index: TravelIndex): string {
     ? `<article class="post">${renderMarkdown(post.markdown, index)}</article>`
     : renderEmpty(t("editorEmptyTitle"), t("editorEmptyText"));
   return `${renderEditorSwitch(region)}
-    ${renderHeader("EDITOR'S PICK", title, post?.info ? String(post.info) : t("curationEditorLead"))}
+    ${renderEditorHero(index, region, title, post?.info ? String(post.info) : t("curationEditorLead"))}
     ${others}
     ${body}
     <div class="editor-switch-bottom">${renderEditorSwitch(region)}</div>${renderFooter()}`;
@@ -1065,7 +1076,11 @@ function setupRandom(places: Place[]): void {
       [pool[index], pool[swap]] = [pool[swap], pool[index]];
     }
     const drawn = pool.slice(0, Math.min(3, pool.length));
-    results.innerHTML = `<div class="ticket-grid">${drawn.map((place, index) => `<article class="ticket"><small>YOUR LOCAL DRAW · 0${index + 1}</small><h3>${escapeHTML(place.name)}</h3><p>${escapeHTML(place.info)}</p><a href="${linkForPlace(place)}">${escapeHTML(t("drawSee"))}</a></article>`).join("")}</div>`;
+    results.innerHTML = `<div class="ticket-grid">${drawn.map((place, index) => {
+      const picture = renderImage(place, place.name);
+      return `<article class="ticket"><div class="card-visual ticket-visual ${getThemeClass(place)}${picture ? " has-image" : ""}">${picture}</div><small>YOUR LOCAL DRAW · 0${index + 1}</small><h3>${escapeHTML(place.name)}</h3><p>${escapeHTML(place.info)}</p><a href="${linkForPlace(place)}">${escapeHTML(t("drawSee"))}</a></article>`;
+    }).join("")}</div>`;
+    setupImages(results);
     message.textContent = t("drawMessage", { region: term(REGION_GROUPS[selectedRegion].label), count: drawn.length });
   });
 }
