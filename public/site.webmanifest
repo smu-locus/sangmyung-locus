@@ -1,0 +1,15 @@
+{
+  "name": "LOCUS",
+  "short_name": "LOCUS",
+  "description": "국내 소도시 관광지를 소개하는 로컬 여행 큐레이션 플랫폼",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "browser",
+  "theme_color": "#ffffff",
+  "background_color": "#ffffff",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
