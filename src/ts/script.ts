@@ -387,12 +387,13 @@ function placeMatchesGroup(place: Place, key: RegionKey): boolean {
   return REGION_GROUPS[key].prefixes.some((prefix) => place.province.startsWith(prefix));
 }
 
+// 메인 슬라이드쇼 사진 (public/image/main_1~5.webp, 1920×1080). 1번부터 차례로 넘어감.
 const HOME_SLIDES: [src: string, alt: UIKey][] = [
-  ["https://images.unsplash.com/photo-1470770841072-f978cf4d019e?auto=format&fit=crop&w=1800&q=80", "slide1"],
-  ["https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&w=1800&q=80", "slide2"],
-  ["https://images.unsplash.com/photo-1469474968028-56623f02e42e?auto=format&fit=crop&w=1800&q=80", "slide3"],
-  ["https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1800&q=80", "slide4"],
-  ["https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1800&q=80", "slide5"],
+  ["image/main_1.webp", "slide1"],
+  ["image/main_2.webp", "slide2"],
+  ["image/main_3.webp", "slide3"],
+  ["image/main_4.webp", "slide4"],
+  ["image/main_5.webp", "slide5"],
 ];
 const HOME_THEMES: [label: string, theme: string][] = [
   ["쇼핑", "쇼핑"],
@@ -441,9 +442,9 @@ function renderHomeTitle(title: string, extra = ""): string {
 }
 
 function renderSlider(): string {
-  const slides = HOME_SLIDES.map(([src, alt], index) => `<div class="home-slide${index === 0 ? " active" : ""}" aria-hidden="${index !== 0}"><img src="${src}" alt="${escapeHTML(t(alt))}"></div>`).join("");
-  const dots = HOME_SLIDES.map((_, index) => `<button type="button" class="slider-dot${index === 0 ? " active" : ""}" data-slide="${index}" aria-label="${escapeHTML(t("slideDot", { n: index + 1 }))}"></button>`).join("");
-  return `<section class="home-slider home-bleed" aria-roledescription="carousel" aria-label="${escapeHTML(t("slider"))}">${slides}<div class="slider-dots">${dots}</div></section>`;
+  const slides = HOME_SLIDES.map(([src, alt], index) => `<div class="home-slide${index === 0 ? " active" : ""}" aria-hidden="${index !== 0}"><img src="${src}" alt="${escapeHTML(t(alt))}" width="1920" height="1080"${index === 0 ? "" : ` loading="lazy"`}></div>`).join("");
+  const arrow = (dir: -1 | 1) => `<button type="button" class="slider-arrow slider-${dir < 0 ? "prev" : "next"}" data-step="${dir}" aria-label="${escapeHTML(t(dir < 0 ? "slidePrev" : "slideNext"))}"><span aria-hidden="true">${dir < 0 ? "‹" : "›"}</span></button>`;
+  return `<section class="home-slider home-bleed" aria-roledescription="carousel" aria-label="${escapeHTML(t("slider"))}">${slides}${arrow(-1)}${arrow(1)}</section>`;
 }
 
 // text는 <br>이 든 사전 문구라 HTML 그대로 넣음
@@ -451,20 +452,104 @@ function renderBanner(art: IconName, title: string, text: string, buttonLabel: s
   return `<div class="home-banner"><span class="home-banner-art">${icon(art)}</span><div class="home-banner-copy"><h3>${escapeHTML(title)}</h3><p>${text}</p></div><a class="home-banner-button" href="${href}">${escapeHTML(buttonLabel)}</a></div>`;
 }
 
-function renderKoreaMap(places: Place[]): string {
-  if (typeof KOREA_MAP === "undefined") return "";
-  const paths = (regions: KoreaMapRegion[]) => regions.map((item) => `<path d="${item.d}"/>`).join("");
-  const regionLinks = (Object.entries(REGION_GROUPS) as [RegionKey, RegionGroup][]).map(([key, group]) => {
-    const count = places.filter((place) => placeMatchesGroup(place, key)).length;
-    const region = term(group.label);
-    return `<a class="map-region" href="local.html?region=${key}" aria-label="${escapeHTML(t("mapRegionLink", { region, count }))}"><title>${escapeHTML(t("mapRegionTitle", { region, count }))}</title>${paths(KOREA_MAP.regions.filter((item) => item.region === key))}</a>`;
+// ---- 메인 화면 K-컬처 Pick 지도 ----
+// 지도·말풍선 카드·연결선을 모두 1000×600 "무대" 좌표로 배치함. 무대는 가로세로 비율이 고정이라
+// 화면 폭이 달라져도 연결선이 항상 같은 지역을 가리킴 (CSS에서 1단위 = 0.1cqw).
+const CULTURE_STAGE = { width: 1000, height: 600 };
+// 무대 안에서 지도가 차지하는 자리: 왼쪽 위 (280, 20), 너비 440 (지도 원본 520×600을 축소)
+const CULTURE_MAP_BOX = { x: 280, y: 20, width: 440 };
+// 지역별 말풍선 카드 위치(무대 좌표)와 붙는 쪽. 카드 크기는 270×128.
+const CULTURE_CARDS: Record<RegionKey, { x: number; y: number; side: "left" | "right" }> = {
+  chungcheong: { x: 0, y: 40, side: "left" },
+  jeolla: { x: 0, y: 300, side: "left" },
+  kangwon: { x: 730, y: 0, side: "right" },
+  gyeongsang: { x: 730, y: 205, side: "right" },
+};
+const CULTURE_CARD_SIZE = { width: 270, height: 128 };
+// 지역 이름을 지도에서 시작하는 연결선 끝점과 맞춤 (북도·남도 이름 위치의 가운데)
+const CULTURE_PIN = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7zm0 9.6A2.6 2.6 0 1 1 12 6.4a2.6 2.6 0 0 1 0 5.2z"/></svg>`;
+
+function cultureLabelPoint(key: RegionKey): { x: number; y: number } {
+  const labels = KOREA_MAP.labels.filter((item) => item.region === key);
+  const scale = CULTURE_MAP_BOX.width / KOREA_MAP.width;
+  const x = labels.reduce((sum, item) => sum + item.x, 0) / labels.length;
+  const y = labels.reduce((sum, item) => sum + item.y, 0) / labels.length;
+  return { x: CULTURE_MAP_BOX.x + x * scale, y: CULTURE_MAP_BOX.y + y * scale };
+}
+
+// 북도·남도를 한 덩어리로 칠하고, 지역 사이에만 흰 틈이 보이도록 덩어리마다 살짝 깎음(erode)
+function renderCultureMapSvg(counts: Record<RegionKey, number>): string {
+  const scale = CULTURE_MAP_BOX.width / KOREA_MAP.width;
+  const paths = (region: RegionKey | "") => KOREA_MAP.regions.filter((item) => item.region === region).map((item) => `<path d="${item.d}"/>`).join("");
+  const regions = REGION_LINKS.map(([label, key]) => {
+    const region = term(label);
+    return `<a class="kmap-region kmap-${key}" href="curation.html?pick=kculture&amp;region=${key}" aria-label="${escapeHTML(t("cultureMapRegion", { region, count: counts[key] }))}"><g class="kmap-shape" filter="url(#kmap-gap)">${paths(key)}</g></a>`;
   }).join("");
-  const labels = KOREA_MAP.labels.map((item) => `<text x="${item.x}" y="${item.y}"${item.region ? "" : ` class="is-muted"`}>${escapeHTML(term(item.name))}</text>`).join("");
-  return `<svg class="korea-map" viewBox="0 0 ${KOREA_MAP.width} ${KOREA_MAP.height}" role="group" aria-label="${escapeHTML(t("mapAria"))}">
-    <g class="map-disabled"><title>${escapeHTML(t("mapComingSoon"))}</title>${paths(KOREA_MAP.regions.filter((item) => !item.region))}</g>
-    ${regionLinks}
-    <g class="map-labels" aria-hidden="true">${labels}</g>
+  const labels = REGION_LINKS.map(([label, key]) => {
+    const point = cultureLabelPoint(key);
+    const x = (point.x - CULTURE_MAP_BOX.x) / scale;
+    const y = (point.y - CULTURE_MAP_BOX.y) / scale;
+    return `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}">${escapeHTML(term(label))}</text>`;
+  }).join("");
+  return `<svg class="kmap-map" viewBox="0 0 ${KOREA_MAP.width} ${KOREA_MAP.height}" role="group" aria-label="${escapeHTML(t("mapAria"))}">
+    <defs><filter id="kmap-gap" x="-5%" y="-5%" width="110%" height="110%"><feMorphology operator="erode" radius="1.2"/></filter></defs>
+    <g class="kmap-shape kmap-none" filter="url(#kmap-gap)"><title>${escapeHTML(t("mapComingSoon"))}</title>${paths("")}</g>
+    ${regions}
+    <g class="kmap-labels" aria-hidden="true">${labels}</g>
   </svg>`;
+}
+
+// 카드에서 지도 속 지역 이름까지 이어지는 선: 카드의 지도 쪽 옆면 가운데에서 가로로 나와,
+// 꺾여서 지역 이름 바로 위의 점에 닿음 (이름 글자 위를 지나가지 않도록 점을 이름 위쪽에 둠)
+function renderCultureLines(): string {
+  const lines = REGION_LINKS.map(([, key]) => {
+    const card = CULTURE_CARDS[key];
+    const label = cultureLabelPoint(key);
+    const ax = card.side === "left" ? card.x + CULTURE_CARD_SIZE.width : card.x;
+    const ay = card.y + CULTURE_CARD_SIZE.height / 2;
+    const dot = { x: label.x, y: label.y - 24 };
+    const dx = dot.x > ax ? 1 : -1;
+    const dy = dot.y > ay ? 1 : -1;
+    const r = Math.min(18, Math.abs(dot.y - ay) / 2, Math.abs(dot.x - ax) / 2);
+    const d = `M${ax} ${ay}H${(dot.x - dx * r).toFixed(1)}Q${dot.x.toFixed(1)} ${ay} ${dot.x.toFixed(1)} ${(ay + dy * r).toFixed(1)}V${dot.y.toFixed(1)}`;
+    return `<path d="${d}"/><circle cx="${dot.x.toFixed(1)}" cy="${dot.y.toFixed(1)}" r="5"/>`;
+  }).join("");
+  return `<svg class="kmap-lines" viewBox="0 0 ${CULTURE_STAGE.width} ${CULTURE_STAGE.height}" aria-hidden="true">${lines}</svg>`;
+}
+
+// 지역 카드: 지역 이름·곳 수, 가나다순 앞의 세 곳 사진. 더 있으면 세 번째 사진에 +N을 얹고 그 지역 목록으로 연결.
+function renderCultureCard(key: RegionKey, label: string, spots: Place[]): string {
+  const card = CULTURE_CARDS[key];
+  const region = term(label);
+  const regionURL = `curation.html?pick=kculture&amp;region=${key}`;
+  const thumb = (place: Place, href: string, aria: string, extra = "") => {
+    const picture = renderImage(place);
+    return `<a class="kmap-thumb${picture ? " has-image" : ""}" href="${href}" aria-label="${escapeHTML(aria)}">${picture}${extra}</a>`;
+  };
+  const shown = spots.slice(0, 3);
+  const more = spots.length - shown.length;
+  const thumbs = shown.map((place, index) => index === 2 && more > 0
+    ? thumb(place, regionURL, t("cultureMore", { region, count: more }), `<span class="kmap-more">+${more}</span>`)
+    : thumb(place, linkForPlace(place), place.name)).join("");
+  return `<article class="kmap-card" style="--x:${card.x};--y:${card.y}">
+    <a class="kmap-card-head" href="${regionURL}"><span class="kmap-pin">${CULTURE_PIN}</span><strong>${escapeHTML(region)}</strong><span class="kmap-count">${escapeHTML(t("cultureCount", { count: spots.length }))}</span></a>
+    <div class="kmap-thumbs">${thumbs}</div>
+  </article>`;
+}
+
+function renderCultureMap(places: Place[]): string {
+  if (typeof KOREA_MAP === "undefined") return "";
+  const culture = places.filter((place) => place.courses.includes("K-컬쳐"))
+    .sort((a, b) => a.id.localeCompare(b.id, "ko"));
+  const byRegion = Object.fromEntries(REGION_LINKS.map(([, key]) => [key, culture.filter((place) => placeMatchesGroup(place, key))])) as Record<RegionKey, Place[]>;
+  const counts = Object.fromEntries(REGION_LINKS.map(([, key]) => [key, byRegion[key].length])) as Record<RegionKey, number>;
+  const cards = REGION_LINKS.map(([label, key]) => renderCultureCard(key, label, byRegion[key])).join("");
+  return `<div class="kmap-stage">
+    ${renderCultureMapSvg(counts)}
+    ${renderCultureLines()}
+    <div class="kmap-cards">${cards}</div>
+    <a class="kmap-all" href="curation.html?pick=kculture">${escapeHTML(t("cultureAll"))} <span aria-hidden="true">›</span></a>
+  </div>`;
 }
 
 function renderHomeFooter(): string {
@@ -488,6 +573,12 @@ function renderHome(index: TravelIndex): string {
     `archive.html?theme=${encodeURIComponent(theme)}`,
     "theme-tile",
   )).join("");
+  const localTiles = REGION_LINKS.map(([label, region]) => renderPhotoTile(
+    firstWithImage(places.filter((place) => placeMatchesGroup(place, region))),
+    term(label),
+    `local.html?region=${region}`,
+    "local-tile",
+  )).join("");
   const editorTiles = REGION_LINKS.map(([label, region]) => renderPhotoTile(
     editorCover(index, region),
     t("editorTile", { initial: CURATION_EDITORS[region] }),
@@ -495,9 +586,6 @@ function renderHome(index: TravelIndex): string {
     "editor-tile",
     term(label),
   )).join("");
-  const culturePlaces = places.filter((place) => place.courses.includes("K-컬쳐"));
-  const cultureTiles = culturePlaces.map((place) => renderPhotoTile(place, place.name, linkForPlace(place), "culture-tile", term(place.province))).join("");
-  const stripButtons = `<div class="strip-buttons"><button type="button" data-scroll="-1" aria-label="${escapeHTML(t("prevCard"))}">←</button><button type="button" data-scroll="1" aria-label="${escapeHTML(t("nextCard"))}">→</button></div>`;
   const services = HOME_SERVICES.map(([title, text, href, name]) => `<a class="service-link" href="${href}"><span class="service-icon">${icon(name)}</span><strong>${escapeHTML(t(title))}</strong><span>${escapeHTML(t(text))}</span></a>`).join("");
   return `${renderSlider()}
   <section class="home-section">
@@ -512,43 +600,44 @@ function renderHome(index: TravelIndex): string {
     </div>
   </section>
   <section class="home-section">
-    ${renderHomeTitle(t("homeKculture"), culturePlaces.length ? stripButtons : "")}
-    ${culturePlaces.length ? `<div class="culture-strip" tabindex="0" aria-label="${escapeHTML(t("cultureStrip"))}">${cultureTiles}</div>` : renderCards([])}
+    ${renderHomeTitle(t("homeKculture"))}
+    ${renderCultureMap(places)}
   </section>
   <section class="home-section">
     ${renderHomeTitle(t("navArchive"))}
     <nav class="theme-tiles" aria-label="${escapeHTML(t("themeSelect"))}">${themeTiles}</nav>
   </section>
   <section class="home-section" id="local-map">
-    ${renderHomeTitle(t("navLocal"), `<p class="home-title-note">${escapeHTML(t("mapNote"))}</p>`)}
-    <div class="map-wrap">${renderKoreaMap(places)}</div>
+    ${renderHomeTitle(t("navLocal"))}
+    <nav class="local-tiles" aria-label="${escapeHTML(t("regionSelect"))}">${localTiles}</nav>
   </section>
   <nav class="service-links" aria-label="${escapeHTML(t("travelSupport"))}">${services}</nav>
   ${renderHomeFooter()}`;
 }
 
+// 5초마다 자동으로 넘어가다가, 화살표를 한 번이라도 누르면 자동 넘김을 끄고 사용자가 고른 사진에 머묾
 function setupSlider(root: ParentNode): void {
   const slider = root.querySelector<HTMLElement>(".home-slider");
   if (!slider) return;
   const slides = [...slider.querySelectorAll<HTMLElement>(".home-slide")];
-  const dots = [...slider.querySelectorAll<HTMLButtonElement>(".slider-dot")];
   let current = 0;
   let timer: number | undefined;
+  let stopped = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const show = (next: number) => {
     current = (next + slides.length) % slides.length;
     slides.forEach((slide, index) => {
       slide.classList.toggle("active", index === current);
       slide.setAttribute("aria-hidden", String(index !== current));
     });
-    dots.forEach((dot, index) => dot.classList.toggle("active", index === current));
   };
   const play = () => {
     clearInterval(timer);
-    if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) timer = window.setInterval(() => show(current + 1), 5000);
+    if (!stopped) timer = window.setInterval(() => show(current + 1), 5000);
   };
-  dots.forEach((dot) => dot.addEventListener("click", () => {
-    show(Number(dot.dataset.slide));
-    play();
+  slider.querySelectorAll<HTMLButtonElement>("[data-step]").forEach((button) => button.addEventListener("click", () => {
+    stopped = true;
+    clearInterval(timer);
+    show(current + Number(button.dataset.step));
   }));
   slider.addEventListener("mouseenter", () => clearInterval(timer));
   slider.addEventListener("mouseleave", play);
@@ -557,31 +646,41 @@ function setupSlider(root: ParentNode): void {
 
 function setupHome(root: ParentNode): void {
   setupSlider(root);
-  const strip = root.querySelector<HTMLElement>(".culture-strip");
-  root.querySelectorAll<HTMLElement>("[data-scroll]").forEach((button) => {
-    button.addEventListener("click", () => {
-      strip?.scrollBy({ left: Number(button.dataset.scroll) * strip.clientWidth * 0.8, behavior: "smooth" });
-    });
-  });
 }
 
 function renderRegionTabs(active: RegionKey, href: (region: RegionKey) => string): string {
   return `<nav class="region-tabs" aria-label="${escapeHTML(t("regionSelect"))}">${REGION_LINKS.map(([label, slug]) => `<a class="pill${slug === active ? " active" : ""}" href="${href(slug)}">${escapeHTML(term(label))}</a>`).join("")}</nav>`;
 }
 
-function renderRegionIntro(intro: RegionIntro | undefined): string {
+// 지역 소개 옆의 작은 전도: 사이트에 들어 있는 지도 데이터(korea-map.js)로 그려서 해당 지역만 칠함.
+// 외부 이미지(예: 나무위키)는 다른 사이트에서 불러오면 막혀서(403) 배포 사이트에서 안 보이므로 쓰지 않음.
+function renderRegionMiniMap(key: RegionKey): string {
+  if (typeof KOREA_MAP === "undefined") return "";
+  const paths = KOREA_MAP.regions.map((item) => `<path${item.region === key ? ` class="is-active"` : ""} d="${item.d}"/>`).join("");
+  return `<svg class="region-intro-map" viewBox="0 0 ${KOREA_MAP.width} ${KOREA_MAP.height}" role="img" aria-label="${escapeHTML(term(REGION_GROUPS[key].label))}">${paths}</svg>`;
+}
+
+function renderRegionIntro(intro: RegionIntro | undefined, key: RegionKey): string {
   if (!intro?.description) return "";
   const paragraphs = intro.description.split(/\n+/).map((line) => line.trim()).filter(Boolean)
     .map((line) => `<p>${escapeHTML(line)}</p>`).join("");
-  const image = safeURL(intro.cover);
   return `<section class="region-intro">
     <div class="region-intro-text">${paragraphs}</div>
-    ${image ? `<img class="region-intro-image" src="${escapeHTML(image)}" alt="" loading="lazy" ${EXTERNAL_IMAGE}>` : ""}
+    ${renderRegionMiniMap(key)}
   </section>`;
 }
 
+// 북도·남도로 나뉜 지역에서 도 하나만 골라 보는 버튼 (전체 / ○○북도 / ○○남도)
+function renderProvinceTabs(key: RegionKey, provinces: string[], active: string): string {
+  // 누른 뒤 페이지 맨 위가 아니라 이 버튼 줄로 돌아오도록 #province-tabs를 붙임
+  const link = (province: string) => `local.html?region=${key}${province ? `&amp;province=${encodeURIComponent(province)}` : ""}#province-tabs`;
+  const pill = (label: string, province: string) => `<a class="pill${province === active ? " active" : ""}" href="${link(province)}"${province === active ? ` aria-current="page"` : ""}>${escapeHTML(label)}</a>`;
+  return `<nav class="province-tabs" id="province-tabs" aria-label="${escapeHTML(t("provinceSelect"))}">${pill(t("provinceAll"), "")}${provinces.map((province) => pill(term(province), province)).join("")}</nav>`;
+}
+
 function renderLocal(places: Place[], intros: TravelIndex["regionIntros"]): string {
-  const requestedRegion = new URLSearchParams(location.search).get("region");
+  const params = new URLSearchParams(location.search);
+  const requestedRegion = params.get("region");
   const key: RegionKey = isRegionKey(requestedRegion) ? requestedRegion : "jeolla";
   const group = REGION_GROUPS[key];
   const found = places.filter((place) => placeMatchesGroup(place, key));
@@ -592,15 +691,19 @@ function renderLocal(places: Place[], intros: TravelIndex["regionIntros"]): stri
       : key === "gyeongsang"
         ? ["경상북도", "경상남도"]
         : ["충청북도", "충청남도"];
-  const sections = provinces.map((province) => {
+  const requestedProvince = params.get("province") ?? "";
+  const activeProvince = provinces.length > 1 && provinces.includes(requestedProvince) ? requestedProvince : "";
+  const shown = activeProvince ? [activeProvince] : provinces;
+  const sections = shown.map((province) => {
     const entries = found.filter((place) => place.province === province);
     return `<section class="region-section">${renderSectionHead(term(province), entries.length)}${renderCards(entries)}</section>`;
   }).join("");
   const intro = intros[key];
   const lead = intro?.info ? String(intro.info) : t("localLead");
   return `${renderHeader("LOCAL SPOTS", t("localTitle", { region: term(group.label) }), lead)}
-    ${renderRegionIntro(intro)}
+    ${renderRegionIntro(intro, key)}
     ${renderRegionTabs(key, (slug) => `local.html?region=${slug}`)}
+    ${provinces.length > 1 ? renderProvinceTabs(key, provinces, activeProvince) : ""}
     ${sections}${renderFooter()}`;
 }
 
@@ -766,8 +869,6 @@ function renderCulturePick(places: Place[]): string {
   const curated = places.filter((place) => place.courses.includes("K-컬쳐") && placeMatchesGroup(place, region));
   return `${renderHeader("TRAVEL CURATION", t("kculturePick"), t("curationCultureLead"))}
     ${renderRegionTabs(region, (slug) => `curation.html?pick=kculture&region=${slug}`)}
-    <div class="editor-pick"><div class="editor-note"><h2>${escapeHTML(t("cultureNoteTitle"))}</h2><p>${escapeHTML(t("cultureNoteText"))}</p></div>
-    <div class="editor-note"><h2>${escapeHTML(t("otherCuration"))}</h2><p><a class="text-link" href="curation.html?pick=editor">${escapeHTML(t("editorPick"))} ↗</a><br><br><a class="text-link" href="random.html">${escapeHTML(t("randomPick"))} ↗</a> &nbsp; <a class="text-link" href="mbti.html">${escapeHTML(t("travelMbti"))} ↗</a></p></div></div>
     <section class="region-section">${renderSectionHead(t("cultureSectionTitle", { region: regionName }), curated.length)}${renderCards(curated)}</section>${renderFooter()}`;
 }
 
@@ -783,11 +884,9 @@ function renderArchive(places: Place[]): string {
   const filtered = places.filter((place) => place.themes.includes(theme));
   return `${renderHeader("THEME ARCHIVE", t("archiveTitle", { theme: themeName }), t("archiveLead"))}
     <nav class="theme-pills" aria-label="${escapeHTML(t("themeSelect"))}">${THEMES.map((name) => `<a class="pill${name === theme ? " active" : ""}" href="archive.html?theme=${encodeURIComponent(name)}">${escapeHTML(term(name))}</a>`).join("")}</nav>
-    <section class="archive-strip-section" aria-label="${escapeHTML(t("archivePlaces", { theme: themeName }))}">
-      <div class="section-head"><div><span class="section-kicker">${filtered.length} PLACES</span><h2>${escapeHTML(t("archivePlaces", { theme: themeName }))}</h2></div><span class="section-note">${t("swipeMore")}</span></div>
-      ${filtered.length
-        ? `<div class="archive-strip" tabindex="0" aria-label="${escapeHTML(t("stripAria"))}">${filtered.map(renderCard).join("")}</div>`
-        : renderCards([])}
+    <section class="archive-section" aria-label="${escapeHTML(t("archivePlaces", { theme: themeName }))}">
+      <div class="section-head"><div><span class="section-kicker">${filtered.length} PLACES</span><h2>${escapeHTML(t("archivePlaces", { theme: themeName }))}</h2></div></div>
+      ${renderCards(filtered)}
     </section>${renderFooter()}`;
 }
 
