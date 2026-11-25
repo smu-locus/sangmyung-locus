@@ -387,14 +387,10 @@ function placeMatchesGroup(place: Place, key: RegionKey): boolean {
   return REGION_GROUPS[key].prefixes.some((prefix) => place.province.startsWith(prefix));
 }
 
-// 메인 슬라이드쇼 사진 (public/image/main_1~5.webp, 1920×1080). 1번부터 차례로 넘어감.
-const HOME_SLIDES: [src: string, alt: UIKey][] = [
-  ["image/main_1.webp", "slide1"],
-  ["image/main_2.webp", "slide2"],
-  ["image/main_3.webp", "slide3"],
-  ["image/main_4.webp", "slide4"],
-  ["image/main_5.webp", "slide5"],
-];
+// 메인 슬라이드쇼 사진: public/image/main/{ko,en,ja}/main_1~5.webp (1920×1080). 1번부터 차례로 넘어감.
+// 화면 언어 폴더의 사진을 쓰고, 그 언어 사진이 없으면 한국어 사진으로 대신함 (setupSlider).
+const HOME_SLIDE_ALTS: UIKey[] = ["slide1", "slide2", "slide3", "slide4", "slide5"];
+const slideSrc = (lang: Lang, n: number) => `image/main/${lang}/main_${n}.webp`;
 const HOME_THEMES: [label: string, theme: string][] = [
   ["쇼핑", "쇼핑"],
   ["역사", "역사"],
@@ -442,7 +438,10 @@ function renderHomeTitle(title: string, extra = ""): string {
 }
 
 function renderSlider(): string {
-  const slides = HOME_SLIDES.map(([src, alt], index) => `<div class="home-slide${index === 0 ? " active" : ""}" aria-hidden="${index !== 0}"><img src="${src}" alt="${escapeHTML(t(alt))}" width="1920" height="1080"${index === 0 ? "" : ` loading="lazy"`}></div>`).join("");
+  const slides = HOME_SLIDE_ALTS.map((alt, index) => {
+    const fallback = LANG === "ko" ? "" : ` data-fallback="${slideSrc("ko", index + 1)}"`;
+    return `<div class="home-slide${index === 0 ? " active" : ""}" aria-hidden="${index !== 0}"><img src="${slideSrc(LANG, index + 1)}"${fallback} alt="${escapeHTML(t(alt))}" width="1920" height="1080"${index === 0 ? "" : ` loading="lazy"`}></div>`;
+  }).join("");
   const arrow = (dir: -1 | 1) => `<button type="button" class="slider-arrow slider-${dir < 0 ? "prev" : "next"}" data-step="${dir}" aria-label="${escapeHTML(t(dir < 0 ? "slidePrev" : "slideNext"))}"><span aria-hidden="true">${dir < 0 ? "‹" : "›"}</span></button>`;
   return `<section class="home-slider home-bleed" aria-roledescription="carousel" aria-label="${escapeHTML(t("slider"))}">${slides}${arrow(-1)}${arrow(1)}</section>`;
 }
@@ -620,6 +619,15 @@ function setupSlider(root: ParentNode): void {
   const slider = root.querySelector<HTMLElement>(".home-slider");
   if (!slider) return;
   const slides = [...slider.querySelectorAll<HTMLElement>(".home-slide")];
+  // 영어·일본어 사진을 못 불러오면 같은 번호의 한국어 사진으로 바꿈 (한 번만)
+  slider.querySelectorAll<HTMLImageElement>("img[data-fallback]").forEach((image) => {
+    image.addEventListener("error", () => {
+      const fallback = image.dataset.fallback;
+      if (!fallback) return;
+      delete image.dataset.fallback;
+      image.src = fallback;
+    });
+  });
   let current = 0;
   let timer: number | undefined;
   let stopped = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
